@@ -13,15 +13,33 @@ This is a decentralized crowdfunding platform built as part of the Seasons of Co
 
 ## What I Learned
 
-- Basics of blockchain and how decentralized ledgers work
-- Cryptography concepts like hashing, digital signatures, and key-pair encryption
-- How decentralized applications (dApps) operate
-- Writing and deploying smart contracts using Solidity
-- Using concepts like:
-  - State variables, structs, mappings
-  - Constructors and modifiers
-  - Payable functions
-  - Global variables like `msg.sender`, `msg.value`, `block.timestamp`
+- **Basics of Blockchain and Decentralized Ledgers**  
+  I learned how blockchains store data across a distributed network, making the system transparent, tamper-proof, and independent of central control.
+
+- **Cryptography in Blockchain**  
+  I explored how hashing ensures data integrity, digital signatures verify user identities, and key-pair encryption enables secure transactions between users.
+
+- **Decentralized Applications (dApps)**  
+  I understood how dApps run on peer-to-peer networks like Ethereum. They are transparent, censorship-resistant, and operate using smart contracts instead of a central server.
+
+- **Smart Contracts and Solidity**  
+  I gained hands-on experience writing smart contracts in Solidity. These contracts define the rules and logic of the crowdfunding platform and are executed automatically on the blockchain.
+
+- **Core Solidity Concepts**:
+  
+  - **State Variables, Structs, and Mappings**  
+    I used state variables to store campaign data, structs to define the structure of a campaign, and mappings to track contributors and their donations efficiently.
+  
+  - **Constructors and Modifiers**  
+    Constructors were used to initialize campaign data at the time of contract deployment. Modifiers helped enforce access control, such as restricting fund withdrawals to only the campaign creator.
+
+  - **Payable Functions**  
+    These functions allowed the contract to receive Ether. They made it possible for users to contribute funds to campaigns securely.
+
+  - **Global Variables**  
+    - `msg.sender`: Identifies the address calling the function (used to track contributors and creators).  
+    - `msg.value`: Represents the amount of Ether sent with a transaction (used to validate contributions).  
+    - `block.timestamp`: Returns the current block time (used to handle campaign deadlines and expiration logic).
 
 ## Tech Stack
 
