@@ -1,37 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-contract Fundraiser {
-    uint public fundraiserCount;
+contract Crowdfund {
+    uint public campaignCount;
     bool private reentrancyLock;
 
-    struct Fundraiser {
+    struct Campaign {
         uint id;
         address payable owner;
-        string name;
-        string purpose;
+        string title;
+        string description;
         uint goal;
         uint deadline;
-        uint balance;
+        uint amountRaised;
         bool withdrawn;
-        mapping(address => uint) donors;
     }
 
-    mapping(uint => Fundraiser) public fundraisers;
-    mapping(uint => address[]) public donorList;
+    mapping(uint => Campaign) public campaigns;
+    mapping(uint => mapping(address => uint)) public contributions;
+    mapping(uint => address[]) public contributors;
 
-    event FundraiserCreated(uint id, address indexed owner, uint goal, uint deadline);
-    event DonationReceived(uint id, address indexed donor, uint amount);
-    event FundsWithdrawn(uint id, address indexed owner);
-    event DonationReturned(uint id, address indexed donor, uint amount);
+    // Events
+    event CampaignCreated(uint indexed id, address indexed owner, uint goal, uint deadline);
+    event ContributionReceived(uint indexed id, address indexed contributor, uint amount);
+    event FundsWithdrawn(uint indexed id, uint amount);
+    event RefundIssued(uint indexed id, address indexed contributor, uint amount);
 
+    // Modifiers
     modifier onlyOwner(uint _id) {
-        require(msg.sender == fundraisers[_id].owner, "Only fundraiser owner can call this");
-        _;
-    }
-
-    modifier isActive(uint _id) {
-        require(block.timestamp < fundraisers[_id].deadline, "Fundraiser has ended");
+        require(msg.sender == campaigns[_id].owner, "Only campaign owner");
         _;
     }
 
@@ -42,79 +39,125 @@ contract Fundraiser {
         reentrancyLock = false;
     }
 
-    function createFundraiser(
-        string calldata _name,
-        string calldata _purpose,
+    modifier campaignExists(uint _id) {
+        require(_id > 0 && _id <= campaignCount, "Campaign does not exist");
+        _;
+    }
+
+    modifier beforeDeadline(uint _id) {
+        require(block.timestamp < campaigns[_id].deadline, "Deadline passed");
+        _;
+    }
+
+    modifier afterDeadline(uint _id) {
+        require(block.timestamp >= campaigns[_id].deadline, "Campaign still active");
+        _;
+    }
+
+    // Week 2: Campaign Creation
+    function createCampaign(
+        string calldata _title,
+        string calldata _description,
         uint _goal,
         uint _durationDays
     ) external {
-        require(_goal > 0, "Goal must be greater than 0");
-        require(_durationDays > 0 && _durationDays <= 180, "Duration must be between 1 and 180 days");
+        require(_goal > 0, "Goal must be > 0");
+        require(_durationDays > 0 && _durationDays <= 90, "Duration must be 190 days");
 
-        fundraiserCount++;
-        uint id = fundraiserCount;
+        campaignCount++;
+        uint id = campaignCount;
 
-        Fundraiser storage f = fundraisers[id];
-        f.id = id;
-        f.owner = payable(msg.sender);
-        f.name = _name;
-        f.purpose = _purpose;
-        f.goal = _goal;
-        f.deadline = block.timestamp + (_durationDays * 1 days);
+        campaigns[id] = Campaign({
+            id: id,
+            owner: payable(msg.sender),
+            title: _title,
+            description: _description,
+            goal: _goal,
+            deadline: block.timestamp + (_durationDays * 1 days),
+            amountRaised: 0,
+            withdrawn: false
+        });
 
-        emit FundraiserCreated(id, msg.sender, _goal, f.deadline);
+        emit CampaignCreated(id, msg.sender, _goal, campaigns[id].deadline);
     }
 
-    function donate(uint _id) external payable isActive(_id) {
-        require(msg.value > 0, "Donation must be greater than 0");
+    // Week 3: Contributions
+    function contribute(uint _id) external payable campaignExists(_id) beforeDeadline(_id) {
+        require(msg.value > 0, "Contribution must be > 0");
 
-        Fundraiser storage f = fundraisers[_id];
-        if (f.donors[msg.sender] == 0) {
-            donorList[_id].push(msg.sender);
+        Campaign storage c = campaigns[_id];
+
+        if (contributions[_id][msg.sender] == 0) {
+            contributors[_id].push(msg.sender);
         }
 
-        f.donors[msg.sender] += msg.value;
-        f.balance += msg.value;
+        contributions[_id][msg.sender] += msg.value;
+        c.amountRaised += msg.value;
 
-        emit DonationReceived(_id, msg.sender, msg.value);
+        emit ContributionReceived(_id, msg.sender, msg.value);
     }
 
-    function withdraw(uint _id) external onlyOwner(_id) noReentrant {
-        Fundraiser storage f = fundraisers[_id];
+    // Week 4: Withdrawal Logic
+    function withdrawFunds(uint _id) external onlyOwner(_id) afterDeadline(_id) noReentrant {
+        Campaign storage c = campaigns[_id];
 
-        require(block.timestamp >= f.deadline, "Cannot withdraw before deadline");
-        require(f.balance >= f.goal, "Goal not reached");
-        require(!f.withdrawn, "Funds already withdrawn");
+        require(!c.withdrawn, "Already withdrawn");
+        require(c.amountRaised >= c.goal, "Goal not reached");
 
-        f.withdrawn = true;
-        uint amount = f.balance;
-        (bool success, ) = f.owner.call{value: amount}("");
-        require(success, "Withdrawal failed");
+        c.withdrawn = true;
+        uint amount = c.amountRaised;
 
-        emit FundsWithdrawn(_id, msg.sender);
+        (bool sent, ) = c.owner.call{value: amount}("");
+        require(sent, "Transfer failed");
+
+        emit FundsWithdrawn(_id, amount);
     }
 
-    function refund(uint _id) external noReentrant {
-        Fundraiser storage f = fundraisers[_id];
+    // Week 4: Refund Logic
+    function requestRefund(uint _id) external afterDeadline(_id) noReentrant campaignExists(_id) {
+        Campaign storage c = campaigns[_id];
+        require(c.amountRaised < c.goal, "Goal met, refund not allowed");
 
-        require(block.timestamp >= f.deadline, "Fundraiser still ongoing");
-        require(f.balance < f.goal, "Goal was met, cannot refund");
+        uint donated = contributions[_id][msg.sender];
+        require(donated > 0, "No contribution to refund");
 
-        uint donation = f.donors[msg.sender];
-        require(donation > 0, "No donation found");
+        contributions[_id][msg.sender] = 0;
 
-        f.donors[msg.sender] = 0;
-        (bool success, ) = msg.sender.call{value: donation}("");
-        require(success, "Refund failed");
+        (bool refunded, ) = msg.sender.call{value: donated}("");
+        require(refunded, "Refund failed");
 
-        emit DonationReturned(_id, msg.sender, donation);
+        emit RefundIssued(_id, msg.sender, donated);
     }
 
-    function viewMyDonation(uint _id, address _donor) external view returns (uint) {
-        return fundraisers[_id].donors[_donor];
+    // Week 6: View Helpers
+    function getCampaign(uint _id) external view campaignExists(_id) returns (
+        uint id,
+        address owner,
+        string memory title,
+        string memory description,
+        uint goal,
+        uint deadline,
+        uint amountRaised,
+        bool withdrawn
+    ) {
+        Campaign storage c = campaigns[_id];
+        return (
+            c.id,
+            c.owner,
+            c.title,
+            c.description,
+            c.goal,
+            c.deadline,
+            c.amountRaised,
+            c.withdrawn
+        );
     }
 
-    function getDonors(uint _id) external view returns (address[] memory) {
-        return donorList[_id];
+    function getContributors(uint _id) external view returns (address[] memory) {
+        return contributors[_id];
+    }
+
+    function getMyContribution(uint _id, address _addr) external view returns (uint) {
+        return contributions[_id][_addr];
     }
 }
